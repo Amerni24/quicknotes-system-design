@@ -2,10 +2,15 @@
 
 // ---------- Configuration ----------
 const API_URL = "https://jsonplaceholder.typicode.com/posts";
+const MAX_TITLE_LENGTH = 100;
 
 // ---------- Page elements ----------
 const loadBtn = document.getElementById("load-btn");
 const statusEl = document.getElementById("status");
+const form = document.getElementById("note-form");
+const titleInput = document.getElementById("title-input");
+const bodyInput = document.getElementById("body-input");
+const submitBtn = document.getElementById("submit-btn");
 const notesList = document.getElementById("notes-list");
 
 // ---------- Reusable request helper ----------
@@ -33,9 +38,10 @@ function setStatus(message, type) {
   statusEl.className = "status " + type;
 }
 
-// Disables the button while a request is running to prevent double clicks.
+// Disables the buttons while a request is running to prevent double clicks.
 function setBusy(isBusy) {
   loadBtn.disabled = isBusy;
+  submitBtn.disabled = isBusy;
 }
 
 function friendlyError(error) {
@@ -50,6 +56,11 @@ function showEmptyState() {
   li.className = "empty-state";
   li.textContent = "No notes to show.";
   notesList.appendChild(li);
+}
+
+function removeEmptyState() {
+  const empty = notesList.querySelector(".empty-state");
+  if (empty) empty.remove();
 }
 
 // User text is always inserted with textContent, never innerHTML.
@@ -78,6 +89,15 @@ function renderNotes(notes) {
   });
 }
 
+// ---------- Validation ----------
+function validateTitle(title) {
+  if (title.length === 0) return "Please enter a title.";
+  if (title.length > MAX_TITLE_LENGTH) {
+    return "The title is too long (" + title.length + " characters). The maximum is " + MAX_TITLE_LENGTH + ".";
+  }
+  return null;
+}
+
 // ---------- GET: load 10 notes ----------
 async function loadNotes() {
   setBusy(true);
@@ -99,7 +119,43 @@ async function loadNotes() {
   }
 }
 
+// ---------- POST: create a note ----------
+async function createNote(title, body) {
+  setBusy(true);
+  setStatus("Saving note...", "loading");
+  try {
+    const result = await request(API_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json; charset=UTF-8" },
+      body: JSON.stringify({ title: title, body: body, userId: 1 })
+    });
+    const note = result.data;
+    removeEmptyState();
+    notesList.prepend(createNoteItem(note));
+    setStatus("Note created (status " + result.status + ", id " + note.id + ").", "success");
+    form.reset();
+  } catch (error) {
+    console.error(error);
+    setStatus(friendlyError(error), "error");
+  } finally {
+    setBusy(false);
+  }
+}
+
 // ---------- Events ----------
 loadBtn.addEventListener("click", loadNotes);
+
+form.addEventListener("submit", function (event) {
+  event.preventDefault();
+  const title = titleInput.value.trim();
+  const body = bodyInput.value.trim();
+  const problem = validateTitle(title);
+  if (problem) {
+    setStatus(problem, "error");
+    titleInput.focus();
+    return;
+  }
+  createNote(title, body);
+});
 
 setStatus('Click "Load notes" to get started.', "info");
