@@ -25,7 +25,7 @@ async function request(url, options = {}) {
     throw error;
   }
 
-  // Some responses may have an empty body, so read text first and parse only if present.
+  // DELETE may return an empty body, so read text first and parse only if present.
   const text = await response.text();
   const data = text ? JSON.parse(text) : null;
   return { status: response.status, data };
@@ -38,10 +38,13 @@ function setStatus(message, type) {
   statusEl.className = "status " + type;
 }
 
-// Disables the buttons while a request is running to prevent double clicks.
+// Disables every button while a request is running to prevent double clicks.
 function setBusy(isBusy) {
   loadBtn.disabled = isBusy;
   submitBtn.disabled = isBusy;
+  document.querySelectorAll(".delete-btn").forEach(function (btn) {
+    btn.disabled = isBusy;
+  });
 }
 
 function friendlyError(error) {
@@ -74,7 +77,15 @@ function createNoteItem(note) {
   const body = document.createElement("p");
   body.textContent = note.body || "(no body)";
 
-  li.append(title, body);
+  const deleteBtn = document.createElement("button");
+  deleteBtn.type = "button";
+  deleteBtn.className = "delete-btn";
+  deleteBtn.textContent = "Delete";
+  deleteBtn.addEventListener("click", function () {
+    deleteNote(note, li);
+  });
+
+  li.append(title, body, deleteBtn);
   return li;
 }
 
@@ -129,11 +140,47 @@ async function createNote(title, body) {
       headers: { "Content-Type": "application/json; charset=UTF-8" },
       body: JSON.stringify({ title: title, body: body, userId: 1 })
     });
-    const note = result.data;
+    // local: true marks a note that only exists in this page (see deleteNote).
+    const note = Object.assign({}, result.data, { local: true });
     removeEmptyState();
     notesList.prepend(createNoteItem(note));
     setStatus("Note created (status " + result.status + ", id " + note.id + ").", "success");
     form.reset();
+  } catch (error) {
+    console.error(error);
+    setStatus(friendlyError(error), "error");
+  } finally {
+    setBusy(false);
+  }
+}
+
+// ---------- DELETE: remove a note ----------
+// JSONPlaceholder is a fake API: it accepts POST requests but does NOT store
+// the new note, so a note we "created" (always id 101) does not exist on the
+// server. Deleting it may therefore return 404 even though nothing went wrong.
+// Approach: we still send the DELETE request for every note, but if a note we
+// created in this page gets a 404, we treat that as success because the goal
+// (the note is gone) is already true. Any other error keeps the note in the
+// list and shows an error message. We remove the exact list item (not by id),
+// because every created note receives the same id 101.
+async function deleteNote(note, li) {
+  setBusy(true);
+  setStatus("Deleting note...", "loading");
+  try {
+    let message;
+    try {
+      const result = await request(API_URL + "/" + note.id, { method: "DELETE" });
+      message = "Note deleted (status " + result.status + ").";
+    } catch (error) {
+      if (note.local && error.status === 404) {
+        message = "Note removed. It only existed in this page, so the practice server had nothing to delete.";
+      } else {
+        throw error;
+      }
+    }
+    li.remove();
+    if (notesList.children.length === 0) showEmptyState();
+    setStatus(message, "success");
   } catch (error) {
     console.error(error);
     setStatus(friendlyError(error), "error");
